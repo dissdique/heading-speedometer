@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -65,9 +66,10 @@
     font-size:15px; letter-spacing:2px; color:var(--phosphor);
     text-shadow:0 0 6px var(--phosphor);
     background:#000; z-index:700;
-    text-align:center;
+    text-align:center; line-height:1.9;
   }
   #gpsStatus span{ opacity:0.6; }
+  #gpsStatus .prompt{ opacity:1; color:var(--amber); text-shadow:0 0 6px var(--amber); }
 
   /* ---------- HEADING TAPE (top) ---------- */
   #headingTape{
@@ -153,7 +155,7 @@
       <svg viewBox="0 0 32 32"><polygon points="16,3 25,27 16,21 7,27" fill="currentColor"/></svg>
     </div>
   </div>
-  <div id="gpsStatus"><span>ACQUIRING GPS FIX&hellip;</span></div>
+  <div id="gpsStatus"><span class="prompt">PRESS ANY BUTTON<br>TO START</span></div>
   <div id="attribution">MAP &copy; OSM &copy; CARTO</div>
 
   <div id="headingTape">
@@ -220,8 +222,21 @@
     return 2*R*Math.asin(Math.sqrt(h));
   }
 
-  if(navigator.geolocation){
-    navigator.geolocation.watchPosition(function(pos){
+  var geoStarted = false;
+  var geoWatchId = null;
+
+  function startGeolocation(){
+    if(geoStarted) return;
+    geoStarted = true;
+
+    if(!navigator.geolocation){
+      document.getElementById('gpsStatus').innerHTML = '<span>GEOLOCATION NOT SUPPORTED</span>';
+      return;
+    }
+
+    document.getElementById('gpsStatus').innerHTML = '<span>ACQUIRING GPS FIX&hellip;</span>';
+
+    geoWatchId = navigator.geolocation.watchPosition(function(pos){
       var c = pos.coords;
       var here = {lat:c.latitude, lng:c.longitude};
 
@@ -249,7 +264,13 @@
       }
       updateSpeedUI();
     }, function(err){
-      document.getElementById('gpsStatus').innerHTML = '<span>GPS UNAVAILABLE<br>'+ (err.message||'') +'</span>';
+      var msg = 'GPS ERROR';
+      if(err.code === 1) msg = 'LOCATION PERMISSION DENIED<br><span style="font-size:10px">Press a button again to retry,<br>or check the Meta AI app\'s<br>site permissions for this app</span>';
+      else if(err.code === 2) msg = 'POSITION UNAVAILABLE<br><span style="font-size:10px">Check phone is online & GPS is on</span>';
+      else if(err.code === 3) msg = 'GPS TIMED OUT<br><span style="font-size:10px">Retrying&hellip;</span>';
+      document.getElementById('gpsStatus').style.display = 'flex';
+      document.getElementById('gpsStatus').innerHTML = '<span>' + msg + '</span>';
+      geoStarted = false; // allow retry on next button press
     }, { enableHighAccuracy:true, maximumAge:1000, timeout:15000 });
   }
 
@@ -415,7 +436,12 @@
   setFocus(0);
 
   document.addEventListener('keydown', function(e){
+    // Cheap + idempotent: internally guarded, so safe to call on every
+    // keypress. This ensures permission requests always ride along on a
+    // real user gesture, and lets a denied/timed-out fix retry on the
+    // wearer's next button press.
     requestOrientationPermission();
+    startGeolocation();
     switch(e.key){
       case 'ArrowLeft':
       case 'ArrowRight':
