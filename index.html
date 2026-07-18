@@ -250,23 +250,85 @@
   silentAudio.loop = true;
   silentAudio.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
 
+  var map = null; // set once Leaflet initializes successfully, below
+
+  // ---------------- D-PAD NAVIGATION ----------------
+  // Wired up FIRST, before any Leaflet/network-dependent code. If a later
+  // section throws (e.g. the map CDN fails to load on-device), the input
+  // listener is already attached and the glasses stay responsive instead
+  // of the whole script silently dying before this ever runs.
+  function setFocus(i){
+    focusEls.forEach(function(el){ el.classList.remove('focused'); });
+    focusIndex = i;
+    focusEls[focusIndex].classList.add('focused');
+  }
+  setFocus(0);
+
+  function safeZoomIn(){ try{ if(map) map.zoomIn(); }catch(e){} }
+  function safeZoomOut(){ try{ if(map) map.zoomOut(); }catch(e){} }
+
+  document.addEventListener('keydown', function(e){
+    // Cheap + idempotent: internally guarded, so safe to call on every
+    // keypress. This ensures permission requests always ride along on a
+    // real user gesture, and lets a denied/timed-out fix retry on the
+    // wearer's next button press.
+    try{ requestOrientationPermission(); }catch(e){}
+    try{ startGeolocation(); }catch(e){}
+    switch(e.key){
+      case 'ArrowLeft':
+        setFocus((focusIndex - 1 + focusEls.length) % focusEls.length);
+        e.preventDefault();
+        break;
+      case 'ArrowRight':
+        setFocus((focusIndex + 1) % focusEls.length);
+        e.preventDefault();
+        break;
+      case 'Enter':
+        try{
+          if(focusIndex === 0){ toggleMode(); }
+          else if(focusIndex === 1){ safeZoomIn(); }
+          else if(focusIndex === 2){ safeZoomOut(); }
+          else { toggleMedia(); }
+        }catch(e){}
+        e.preventDefault();
+        break;
+      case 'ArrowUp':
+        safeZoomIn();
+        e.preventDefault();
+        break;
+      case 'ArrowDown':
+        safeZoomOut();
+        e.preventDefault();
+        break;
+    }
+  });
+
   // ---------------- MAP ----------------
-  var map = L.map('map', {
-    zoomControl:false, attributionControl:false,
-    dragging:false, touchZoom:false, scrollWheelZoom:false,
-    doubleClickZoom:false, boxZoom:false, keyboard:false, tap:false
-  }).setView([0,0], 15);
+  try{
+    map = L.map('map', {
+      zoomControl:false, attributionControl:false,
+      dragging:false, touchZoom:false, scrollWheelZoom:false,
+      doubleClickZoom:false, boxZoom:false, keyboard:false, tap:false
+    }).setView([0,0], 15);
 
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
-    subdomains:'abcd', maxZoom:19
-  }).addTo(map);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
+      subdomains:'abcd', maxZoom:19
+    }).addTo(map);
 
-  // Leaflet makes its container focusable (tabindex=0) by default for
-  // accessibility, even with keyboard interaction disabled — that can
-  // trigger a native/browser focus ring around the whole map. We don't
-  // need it focusable since all input is handled by our own D-pad listener.
-  map.getContainer().removeAttribute('tabindex');
-  map.getContainer().style.outline = 'none';
+    // Leaflet makes its container focusable (tabindex=0) by default for
+    // accessibility, even with keyboard interaction disabled — that can
+    // trigger a native/browser focus ring around the whole map. We don't
+    // need it focusable since all input is handled by our own D-pad listener.
+    map.getContainer().removeAttribute('tabindex');
+    map.getContainer().style.outline = 'none';
+  }catch(mapErr){
+    map = null;
+    document.getElementById('gpsStatus').style.display = 'flex';
+    document.getElementById('gpsStatus').innerHTML =
+      '<span>MAP FAILED TO LOAD<br><span style="font-size:10px">' +
+      (mapErr && mapErr.message ? mapErr.message : 'Unknown error') +
+      '<br>Speed/heading/media still work</span></span>';
+  }
 
   var gotFix = false;
 
@@ -302,9 +364,9 @@
       if(!gotFix){
         gotFix = true;
         document.getElementById('gpsStatus').style.display='none';
-        map.setView(here, 17);
+        if(map){ map.setView(here, 17); }
       } else {
-        map.panTo(here, {animate:false});
+        if(map){ map.panTo(here, {animate:false}); }
       }
 
       // speed
@@ -517,48 +579,6 @@
   setPlaybackState(false);
 
   function toggleMedia(){ setPlaybackState(!isPlaying); }
-
-  // ---------------- D-PAD NAVIGATION ----------------
-  function setFocus(i){
-    focusEls.forEach(function(el){ el.classList.remove('focused'); });
-    focusIndex = i;
-    focusEls[focusIndex].classList.add('focused');
-  }
-  setFocus(0);
-
-  document.addEventListener('keydown', function(e){
-    // Cheap + idempotent: internally guarded, so safe to call on every
-    // keypress. This ensures permission requests always ride along on a
-    // real user gesture, and lets a denied/timed-out fix retry on the
-    // wearer's next button press.
-    requestOrientationPermission();
-    startGeolocation();
-    switch(e.key){
-      case 'ArrowLeft':
-        setFocus((focusIndex - 1 + focusEls.length) % focusEls.length);
-        e.preventDefault();
-        break;
-      case 'ArrowRight':
-        setFocus((focusIndex + 1) % focusEls.length);
-        e.preventDefault();
-        break;
-      case 'Enter':
-        if(focusIndex === 0){ toggleMode(); }
-        else if(focusIndex === 1){ map.zoomIn(); }
-        else if(focusIndex === 2){ map.zoomOut(); }
-        else { toggleMedia(); }
-        e.preventDefault();
-        break;
-      case 'ArrowUp':
-        map.zoomIn();
-        e.preventDefault();
-        break;
-      case 'ArrowDown':
-        map.zoomOut();
-        e.preventDefault();
-        break;
-    }
-  });
 
   applyHeading();
 
