@@ -164,7 +164,7 @@
 <body>
 <svg width="0" height="0" style="position:absolute">
   <defs>
-    <filter id="roadFX" x="-20%" y="-20%" width="140%" height="140%">
+    <filter id="roadFX" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
       <!-- 1. collapse to grayscale luminance (R=G=B=L), background pixels stay near 0 -->
       <feColorMatrix type="matrix" values="
         0.299 0.587 0.114 0 0
@@ -532,37 +532,4 @@
     // real user gesture, and lets a denied/timed-out fix retry on the
     // wearer's next button press.
     requestOrientationPermission();
-    startGeolocation();
-    switch(e.key){
-      case 'ArrowLeft':
-        setFocus((focusIndex - 1 + focusEls.length) % focusEls.length);
-        e.preventDefault();
-        break;
-      case 'ArrowRight':
-        setFocus((focusIndex + 1) % focusEls.length);
-        e.preventDefault();
-        break;
-      case 'Enter':
-        if(focusIndex === 0){ toggleMode(); }
-        else if(focusIndex === 1){ map.zoomIn(); }
-        else if(focusIndex === 2){ map.zoomOut(); }
-        else { toggleMedia(); }
-        e.preventDefault();
-        break;
-      case 'ArrowUp':
-        map.zoomIn();
-        e.preventDefault();
-        break;
-      case 'ArrowDown':
-        map.zoomOut();
-        e.preventDefault();
-        break;
-    }
-  });
-
-  applyHeading();
-
-})();
-</script>
-</body>
-</html>
+    startGeolocation(
