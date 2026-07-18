@@ -17,16 +17,18 @@
     --amber-dim:#3a2900;
     --ink:#eafff2;
   }
-  *{box-sizing:border-box; margin:0; padding:0;}
+  *{box-sizing:border-box; margin:0; padding:0; outline:none; -webkit-tap-highlight-color:transparent;}
   html,body{
     width:600px; height:600px; overflow:hidden;
     background:var(--bg);
     font-family: ui-sans-serif, "Arial Narrow", Arial, sans-serif;
     color:var(--phosphor);
+    outline:none; border:none;
   }
   #stage{
     position:relative; width:600px; height:600px; background:#000;
   }
+  .leaflet-container, .leaflet-container:focus{ outline:none !important; }
 
   /* ---------- MAP ---------- */
   #mapClip{
@@ -42,7 +44,7 @@
     transform: rotate(0deg);
   }
   #map{ position:absolute; left:150px; top:150px; width:600px; height:600px; }
-  .leaflet-tile-pane{ filter: grayscale(1) brightness(1.15) contrast(1.25); opacity:0.9; }
+  .leaflet-tile-pane{ filter: contrast(1.8) brightness(1.2) grayscale(1) sepia(1) hue-rotate(100deg) saturate(3) brightness(1.15); opacity:1; }
 
   #userMarker{
     position:absolute; left:50%; top:50%; width:0; height:0;
@@ -232,6 +234,13 @@
   L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
     subdomains:'abcd', maxZoom:19
   }).addTo(map);
+
+  // Leaflet makes its container focusable (tabindex=0) by default for
+  // accessibility, even with keyboard interaction disabled — that can
+  // trigger a native/browser focus ring around the whole map. We don't
+  // need it focusable since all input is handled by our own D-pad listener.
+  map.getContainer().removeAttribute('tabindex');
+  map.getContainer().style.outline = 'none';
 
   var gotFix = false;
 
