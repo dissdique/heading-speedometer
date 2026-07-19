@@ -380,7 +380,12 @@
     var heading = null;
     if(typeof e.webkitCompassHeading === 'number'){
       heading = e.webkitCompassHeading; // iOS, already true-north referenced
-    } else if(e.absolute && e.alpha !== null){
+    } else if(e.alpha !== null && e.alpha !== undefined){
+      // Note: we deliberately don't require e.absolute === true here.
+      // Many Android WebViews (this glasses runtime included, apparently)
+      // report absolute:false on 'deviceorientation' even while alpha is
+      // genuinely compass-derived and usable. Requiring absolute:true
+      // meant we silently never captured a heading at all.
       heading = 360 - e.alpha;
     }
     if(heading !== null && !isNaN(heading)){
@@ -531,32 +536,4 @@
   })();
 
   // ---------------- MEDIA CONTROL ----------------
-  var mediaBtn = document.getElementById('mediaBtn');
-
-  function setPlaybackState(playing){
-    isPlaying = playing;
-    mediaBtn.innerHTML = playing ? '&#10073;&#10073;' : '&#9654;';
-    if(playing){ silentAudio.play().catch(function(){}); }
-    else { silentAudio.pause(); }
-    if('mediaSession' in navigator){
-      navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
-    }
-  }
-
-  if('mediaSession' in navigator){
-    navigator.mediaSession.setActionHandler('play', function(){ setPlaybackState(true); });
-    navigator.mediaSession.setActionHandler('pause', function(){ setPlaybackState(false); });
-    try{
-      navigator.mediaSession.metadata = new MediaMetadata({ title:'Bearing', artist:'MRBD' });
-    }catch(e){}
-  }
-  setPlaybackState(false);
-
-  function toggleMedia(){ setPlaybackState(!isPlaying); }
-
-  applyHeading();
-
-})();
-</script>
-</body>
-</html>
+  var mediaBtn = document.g
