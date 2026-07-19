@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -536,4 +537,32 @@
   })();
 
   // ---------------- MEDIA CONTROL ----------------
-  var mediaBtn = document.g
+  var mediaBtn = document.getElementById('mediaBtn');
+
+  function setPlaybackState(playing){
+    isPlaying = playing;
+    mediaBtn.innerHTML = playing ? '&#10073;&#10073;' : '&#9654;';
+    if(playing){ silentAudio.play().catch(function(){}); }
+    else { silentAudio.pause(); }
+    if('mediaSession' in navigator){
+      navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
+    }
+  }
+
+  if('mediaSession' in navigator){
+    navigator.mediaSession.setActionHandler('play', function(){ setPlaybackState(true); });
+    navigator.mediaSession.setActionHandler('pause', function(){ setPlaybackState(false); });
+    try{
+      navigator.mediaSession.metadata = new MediaMetadata({ title:'Bearing', artist:'MRBD' });
+    }catch(e){}
+  }
+  setPlaybackState(false);
+
+  function toggleMedia(){ setPlaybackState(!isPlaying); }
+
+  applyHeading();
+
+})();
+</script>
+</body>
+</html>
