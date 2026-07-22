@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -241,8 +240,15 @@
 
   function safeZoomIn(){ try{ if(map) map.zoomIn(); }catch(e){} }
   function safeZoomOut(){ try{ if(map) map.zoomOut(); }catch(e){} }
+  var lastEnterTime = 0;
 
   document.addEventListener('keydown', function(e){
+    // Gesture/tap input can sometimes fire repeated keydown events for a
+    // single press (the same way a held keyboard key auto-repeats) — if
+    // we don't ignore those, one tap can toggle a setting twice in a row
+    // (e.g. Heading Up then immediately back to North Up).
+    if(e.repeat) return;
+
     // Cheap + idempotent: internally guarded, so safe to call on every
     // keypress. This ensures permission requests always ride along on a
     // real user gesture, and lets a denied/timed-out fix retry on the
@@ -259,6 +265,11 @@
         e.preventDefault();
         break;
       case 'Enter':
+        // Belt-and-suspenders: some gesture-to-key mappings send synthetic
+        // repeated events without setting KeyboardEvent.repeat, so also
+        // debounce Enter by time to stop a single tap firing the toggle twice.
+        if(Date.now() - lastEnterTime < 350){ e.preventDefault(); break; }
+        lastEnterTime = Date.now();
         try{
           if(focusIndex === 0){ toggleMode(); }
           else if(focusIndex === 1){ safeZoomIn(); }
