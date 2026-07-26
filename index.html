@@ -534,4 +534,46 @@
   }
 
   // ---------------- MODE TOGGLE ----------------
-  var compassBtn = document.getElementById('
+  var compassBtn = document.getElementById('compassBtn');
+  function toggleMode(){
+    headingUp = !headingUp;
+    localStorage.setItem('bearing-mode', headingUp ? 'headingUp' : 'northUp');
+    document.getElementById('modeLabel').textContent = headingUp ? 'HEADING UP' : 'NORTH UP';
+    compassBtn.querySelector('.sub').textContent = headingUp ? '◀ HEADING UP ▶' : '◀ NORTH UP ▶';
+    applyHeading();
+  }
+  (function initModeLabel(){
+    document.getElementById('modeLabel').textContent = headingUp ? 'HEADING UP' : 'NORTH UP';
+    compassBtn.querySelector('.sub').textContent = headingUp ? '◀ HEADING UP ▶' : '◀ NORTH UP ▶';
+  })();
+
+  // ---------------- MEDIA CONTROL ----------------
+  var mediaBtn = document.getElementById('mediaBtn');
+
+  function setPlaybackState(playing){
+    isPlaying = playing;
+    mediaBtn.innerHTML = playing ? '&#10073;&#10073;' : '&#9654;';
+    if(playing){ silentAudio.play().catch(function(){}); }
+    else { silentAudio.pause(); }
+    if('mediaSession' in navigator){
+      navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
+    }
+  }
+
+  if('mediaSession' in navigator){
+    navigator.mediaSession.setActionHandler('play', function(){ setPlaybackState(true); });
+    navigator.mediaSession.setActionHandler('pause', function(){ setPlaybackState(false); });
+    try{
+      navigator.mediaSession.metadata = new MediaMetadata({ title:'Bearing', artist:'MRBD' });
+    }catch(e){}
+  }
+  setPlaybackState(false);
+
+  function toggleMedia(){ setPlaybackState(!isPlaying); }
+
+  applyHeading();
+
+})();
+</script>
+</body>
+</html>
