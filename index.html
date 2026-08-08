@@ -245,12 +245,6 @@
   var lastEnterTime = 0;
 
   document.addEventListener('keydown', function(e){
-    // Gesture/tap input can sometimes fire repeated keydown events for a
-    // single press (the same way a held keyboard key auto-repeats) — if
-    // we don't ignore those, one tap can toggle a setting twice in a row
-    // (e.g. Heading Up then immediately back to North Up).
-    if(e.repeat) return;
-
     // Cheap + idempotent: internally guarded, so safe to call on every
     // keypress. This ensures permission requests always ride along on a
     // real user gesture, and lets a denied/timed-out fix retry on the
