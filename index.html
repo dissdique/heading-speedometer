@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -250,7 +249,7 @@
     // keypress. This ensures permission requests always ride along on a
     // real user gesture, and lets a denied/timed-out fix retry on the
     // wearer's next button press.
-    try{ requestOrientationPermission(); }catch(e){}
+    try{ startOrientation(); }catch(e){}
     try{ startGeolocation(); }catch(e){}
     switch(e.key){
       case 'ArrowLeft':
@@ -328,6 +327,8 @@
 
   var geoStarted = false;
   var geoWatchId = null;
+  var lastPanTime = 0;
+  var MIN_PAN_INTERVAL_MS = 700; // don't re-pan/reload tiles more often than this
 
   function startGeolocation(){
     if(geoStarted) return;
@@ -348,8 +349,19 @@
         gotFix = true;
         document.getElementById('gpsStatus').style.display='none';
         if(map){ map.setView(here, 17); }
+        lastPanTime = Date.now();
       } else {
-        if(map){ map.panTo(here, {animate:false}); }
+        // Throttle panning — at higher speed, position updates arrive more
+        // often AND cover more ground each time, meaning more map tile
+        // boundaries get crossed and more tiles get fetched/decoded/painted
+        // per second. That's real work competing with sensor-event
+        // processing on the same single JS thread, which was likely why
+        // the compass appeared to "die" specifically at higher speed —
+        // not the sensor itself, but events queued behind render work.
+        if(map && (Date.now() - lastPanTime) >= MIN_PAN_INTERVAL_MS){
+          map.panTo(here, {animate:false});
+          lastPanTime = Date.now();
+        }
         // A fresh good fix means we're not in an error state anymore —
         // clear any transient error text so it doesn't linger.
         document.getElementById('gpsStatus').style.display = 'none';
@@ -365,15 +377,12 @@
       }
       lastFix = {pos:here, t:pos.timestamp};
 
-      // heading fallback from GPS course-over-ground. We deliberately only
-      // trust c.heading when THIS SAME fix also reports a real, non-trivial
-      // speed — a lot of Android location providers report heading:0 (not
-      // null) whenever they don't actually have a confident bearing yet,
-      // which is common at low speed. Treating that 0 as real is what was
-      // causing heading to collapse to "north" right as you started moving.
-      var fixSpeedMps = (c.speed !== null && c.speed !== undefined && !isNaN(c.speed)) ? c.speed : null;
-      var fixLooksReliable = fixSpeedMps !== null && fixSpeedMps >= 2.2; // ~5 mph
-      if(fixLooksReliable && c.heading !== null && c.heading !== undefined && !isNaN(c.heading)){
+      // GPS course-over-ground, used only as a last-resort fallback when
+      // the compass has no data at all. We gate on our own currentSpeedMph
+      // (computed just above, with a haversine fallback) rather than raw
+      // c.speed, since c.speed can be null/unreliable on some devices —
+      // which was likely why gpsHeading never populated on this hardware.
+      if(currentSpeedMph >= 5 && c.heading !== null && c.heading !== undefined && !isNaN(c.heading)){
         gpsHeading = c.heading;
         lastGpsHeadingUpdate = Date.now();
       }
@@ -434,12 +443,29 @@
     }
   }
 
-  window.addEventListener('deviceorientationabsolute', handleOrientation, true);
-  window.addEventListener('deviceorientation', handleOrientation, true);
-
-  function requestOrientationPermission(){
+  // Same lesson as geolocation: motion/orientation data requires an
+  // explicit user permission grant on MRBD, and requesting it outside a
+  // real user gesture can silently fail. Previously these listeners were
+  // attached immediately on page load — never gated behind a press — which
+  // is almost certainly why the compass never produced a single reading.
+  var orientationStarted = false;
+  function startOrientation(){
+    if(orientationStarted) return;
+    orientationStarted = true;
     if(typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function'){
-      DeviceOrientationEvent.requestPermission().catch(function(){});
+      DeviceOrientationEvent.requestPermission().then(function(state){
+        if(state === 'granted'){
+          window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+          window.addEventListener('deviceorientation', handleOrientation, true);
+        } else {
+          orientationStarted = false;
+        }
+      }).catch(function(){
+        orientationStarted = false; // allow retry on next button press
+      });
+    } else {
+      window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+      window.addEventListener('deviceorientation', handleOrientation, true);
     }
   }
 
@@ -451,24 +477,23 @@
   var HEADING_TICK_MS   = 450;  // how often we re-render heading (was every sensor event, ~30-60Hz)
   var HEADING_SMOOTHING = 0.22; // lower = smoother/slower to catch up, higher = snappier
   var HEADING_DEADBAND  = 4;    // degrees of drift required before we bother re-rendering
-  var GPS_HEADING_SPEED_THRESHOLD = 5; // mph — above this, trust GPS course over the compass
-  var GPS_HEADING_MAX_AGE_MS = 4000; // a gpsHeading value older than this is considered stale
+  var GPS_HEADING_MAX_AGE_MS = 15000; // a gpsHeading value older than this is considered stale — widened since GPS fixes appear to land infrequently on this hardware
 
   var lastAppliedHeading = 0;
 
-  // Renders on a fixed slow cadence instead of on every raw sensor event,
-  // and prefers GPS course-over-ground while moving (it's far steadier
-  // than a magnetometer in a car) — the compass is only used when stationary
-  // or slow. Smoothing + a deadband stop small jitter from re-triggering
-  // the map rotation.
+  // Renders on a fixed slow cadence instead of on every raw sensor event.
+  // Simplified after repeated issues with GPS-course reliability on this
+  // hardware: the compass is now always the primary source whenever it has
+  // fresh data. GPS course-over-ground is only used as a last-resort
+  // fallback when the compass has no data at all (not preferred while
+  // moving, since that's exactly what kept breaking). Smoothing + a
+  // deadband still stop small jitter from re-triggering the map rotation.
   setInterval(function(){
     var target = null;
-    var compassFresh = (Date.now() - lastCompassUpdate) < 3000;
+    var compassFresh = (Date.now() - lastCompassUpdate) < 6000;
     var gpsHeadingFresh = gpsHeading !== null && (Date.now() - lastGpsHeadingUpdate) < GPS_HEADING_MAX_AGE_MS;
-    var movingEnoughForGps = currentSpeedMph >= GPS_HEADING_SPEED_THRESHOLD && gpsHeadingFresh;
 
-    if(movingEnoughForGps){ target = gpsHeading; }
-    else if(compassFresh && rawCompassHeading !== null){ target = rawCompassHeading; }
+    if(compassFresh && rawCompassHeading !== null){ target = rawCompassHeading; }
     else if(gpsHeadingFresh){ target = gpsHeading; }
 
     if(target === null){
