@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -488,4 +489,169 @@
 
   var lastAppliedHeading = 0;
 
-  // Renders on a fixed slow cadence instead o
+  // Renders on a fixed slow cadence instead of on every raw sensor event.
+  // Simplified after repeated issues with GPS-course reliability on this
+  // hardware: the compass is now always the primary source whenever it has
+  // fresh data. GPS course-over-ground is only used as a last-resort
+  // fallback when the compass has no data at all (not preferred while
+  // moving, since that's exactly what kept breaking). Smoothing + a
+  // deadband still stop small jitter from re-triggering the map rotation.
+  setInterval(function(){
+    var target = null;
+    var compassFresh = (Date.now() - lastCompassUpdate) < 6000;
+    var gpsHeadingFresh = gpsHeading !== null && (Date.now() - lastGpsHeadingUpdate) < GPS_HEADING_MAX_AGE_MS;
+
+    if(compassFresh && rawCompassHeading !== null){ target = rawCompassHeading; }
+    else if(gpsHeadingFresh){ target = gpsHeading; }
+
+    if(target === null){
+      updateDebugLine(target);
+      return;
+    }
+
+    currentHeading = (currentHeading + angleDiff(currentHeading, target) * HEADING_SMOOTHING + 360) % 360;
+    updateDebugLine(target);
+
+    if(Math.abs(angleDiff(lastAppliedHeading, currentHeading)) >= HEADING_DEADBAND){
+      lastAppliedHeading = currentHeading;
+      applyHeading();
+    }
+  }, HEADING_TICK_MS);
+
+  function updateDebugLine(target){
+    var el = document.getElementById('debugLine');
+    if(!el) return;
+    el.textContent = 'mode:' + (headingUp?'HDG':'N') +
+      ' cur:' + Math.round(currentHeading) +
+      ' tgt:' + (target===null?'-':Math.round(target)) +
+      ' cmp:' + (rawCompassHeading===null?'-':Math.round(rawCompassHeading)) +
+      ' gps:' + (gpsHeading===null?'-':Math.round(gpsHeading)) +
+      ' spd:' + currentSpeedMph.toFixed(1);
+  }
+
+  function applyHeading(){
+    drawHeadingTape(currentHeading);
+    var marker = document.querySelector('#userMarker svg');
+    if(headingUp){
+      document.getElementById('mapRotator').style.transform = 'rotate(' + (-currentHeading) + 'deg)';
+      marker.style.transform = 'rotate(0deg)';
+    } else {
+      document.getElementById('mapRotator').style.transform = 'rotate(0deg)';
+      marker.style.transform = 'rotate(' + currentHeading + 'deg)';
+    }
+  }
+
+  // ---------------- HEADING TAPE DRAW ----------------
+  var hCanvas = document.getElementById('headingCanvas');
+  var hCtx = hCanvas.getContext('2d');
+  var PX_PER_DEG = 5.2;
+
+  function cardinal(deg){
+    var dirs = ['N','NE','E','SE','S','SW','W','NW'];
+    return dirs[Math.round(deg/45)%8];
+  }
+
+  function drawHeadingTape(heading){
+    hCtx.clearRect(0,0,600,52);
+    hCtx.strokeStyle = 'rgba(61,255,160,0.55)';
+    hCtx.fillStyle = 'rgba(61,255,160,0.85)';
+    hCtx.font = '11px ui-monospace, monospace';
+    hCtx.textAlign = 'center';
+
+    for(var d = -50; d <= 50; d += 5){
+      var deg = Math.round((heading + d + 360) % 360);
+      var x = 300 + d*PX_PER_DEG;
+      var isMajor = deg % 30 === 0;
+      var isMinor = deg % 10 === 0;
+      var h = isMajor ? 18 : (isMinor ? 12 : 7);
+      hCtx.lineWidth = isMajor ? 1.5 : 1;
+      hCtx.beginPath();
+      hCtx.moveTo(x, 0);
+      hCtx.lineTo(x, h);
+      hCtx.stroke();
+      if(isMajor){
+        var label = (deg % 90 === 0) ? cardinal(deg) : String(deg);
+        hCtx.fillText(label, x, 32);
+      }
+    }
+    document.getElementById('headingPointer');
+  }
+  drawHeadingTape(0);
+
+  // ---------------- SPEED TAPE DRAW ----------------
+  var sCanvas = document.getElementById('speedCanvas');
+  var sCtx = sCanvas.getContext('2d');
+  var PX_PER_MPH = 9;
+
+  function drawSpeedTape(speed){
+    sCtx.clearRect(0,0,70,530);
+    sCtx.strokeStyle = 'rgba(61,255,160,0.5)';
+    sCtx.fillStyle = 'rgba(61,255,160,0.8)';
+    sCtx.font = '10px ui-monospace, monospace';
+    sCtx.textAlign = 'left';
+
+    for(var v = -30; v <= 30; v += 5){
+      var mph = Math.round(speed + v);
+      if(mph < 0) continue;
+      var y = 265 - v*PX_PER_MPH;
+      var isMajor = mph % 10 === 0;
+      var w = isMajor ? 16 : 9;
+      sCtx.lineWidth = isMajor ? 1.5 : 1;
+      sCtx.beginPath();
+      sCtx.moveTo(0, y);
+      sCtx.lineTo(w, y);
+      sCtx.stroke();
+      if(isMajor){ sCtx.fillText(String(mph), 20, y+3.5); }
+    }
+  }
+  drawSpeedTape(0);
+
+  function updateSpeedUI(){
+    drawSpeedTape(currentSpeedMph);
+    document.getElementById('speedNum').textContent = Math.round(currentSpeedMph);
+  }
+
+  // ---------------- MODE TOGGLE ----------------
+  var compassBtn = document.getElementById('compassBtn');
+  function toggleMode(){
+    headingUp = !headingUp;
+    localStorage.setItem('bearing-mode', headingUp ? 'headingUp' : 'northUp');
+    document.getElementById('modeLabel').textContent = headingUp ? 'HEADING UP' : 'NORTH UP';
+    compassBtn.querySelector('.sub').textContent = headingUp ? '◀ HEADING UP ▶' : '◀ NORTH UP ▶';
+    applyHeading();
+  }
+  (function initModeLabel(){
+    document.getElementById('modeLabel').textContent = headingUp ? 'HEADING UP' : 'NORTH UP';
+    compassBtn.querySelector('.sub').textContent = headingUp ? '◀ HEADING UP ▶' : '◀ NORTH UP ▶';
+  })();
+
+  // ---------------- MEDIA CONTROL ----------------
+  var mediaBtn = document.getElementById('mediaBtn');
+
+  function setPlaybackState(playing){
+    isPlaying = playing;
+    mediaBtn.innerHTML = playing ? '&#10073;&#10073;' : '&#9654;';
+    if(playing){ silentAudio.play().catch(function(){}); }
+    else { silentAudio.pause(); }
+    if('mediaSession' in navigator){
+      navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
+    }
+  }
+
+  if('mediaSession' in navigator){
+    navigator.mediaSession.setActionHandler('play', function(){ setPlaybackState(true); });
+    navigator.mediaSession.setActionHandler('pause', function(){ setPlaybackState(false); });
+    try{
+      navigator.mediaSession.metadata = new MediaMetadata({ title:'Bearing', artist:'MRBD' });
+    }catch(e){}
+  }
+  setPlaybackState(false);
+
+  function toggleMedia(){ setPlaybackState(!isPlaying); }
+
+  applyHeading();
+
+})();
+</script>
+</body>
+</html>
