@@ -429,12 +429,12 @@
 
   // The glasses' internal sensor axes don't necessarily line up with "the
   // direction the wearer is looking" — a fixed calibration offset is
-  // normal for IMU-based headings. First correction (-90) wasn't quite
-  // enough — a road photo showed the map still needing roughly another
-  // 90-110° of clockwise correction on top of that. This is a rough
-  // estimate from a photo, not an exact calibration — see the note where
-  // this is used for how to nail it exactly with one real data point.
-  var COMPASS_OFFSET_DEG = -180;
+  // sometimes needed for IMU-based headings. Two rough photo-based
+  // estimates (-90, then -180) overshot and undershot respectively; the
+  // second one produced a full north/south inversion, which — since 180°
+  // is its own inverse — means the correct offset is actually 0. Left as
+  // a named constant in case a future hardware/firmware change needs it.
+  var COMPASS_OFFSET_DEG = 0;
 
   function handleOrientation(e){
     var heading = null;
