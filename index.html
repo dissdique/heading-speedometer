@@ -147,6 +147,12 @@
     box-shadow:0 0 8px rgba(255,180,0,0.5);
   }
 
+  #donateLink.focused{
+    color:var(--amber) !important;
+    text-decoration:underline;
+    text-shadow:0 0 6px var(--amber);
+  }
+
   #mediaBtn{
     position:absolute; right:8px; bottom:8px; z-index:900;
     width:56px; height:56px; border-radius:50%;
@@ -194,9 +200,15 @@
       <div class="zoomBtn" id="zoomInBtn" tabindex="0">&#43;</div>
       <div class="zoomBtn" id="zoomOutBtn" tabindex="0">&#8722;</div>
     </div>
+    <div class="btn" id="calBtn" tabindex="0">CALIBRATE<span class="sub">syncs to GPS</span></div>
   </div>
 
+  <div id="calToast" style="position:absolute; left:0; top:260px; width:600px; text-align:center; font-family:ui-monospace,monospace; font-size:13px; letter-spacing:2px; color:var(--amber); text-shadow:0 0 6px var(--amber); z-index:950; opacity:0; transition:opacity 0.3s;"></div>
+
   <div id="mediaBtn" tabindex="0">&#9199;</div>
+
+  <img id="logoBadge" src="https://github.com/dissdique.png" alt="" style="position:absolute; left:6px; bottom:26px; width:22px; height:22px; border-radius:50%; z-index:950; opacity:0.85; filter:drop-shadow(0 0 3px rgba(61,255,160,0.4));" />
+  <div id="donateLink" tabindex="0" style="position:absolute; left:32px; bottom:26px; font-family:ui-monospace,monospace; font-size:9px; letter-spacing:1px; color:rgba(61,255,160,0.55); z-index:950; padding:4px 4px 4px 2px;">&#9825; DONATE</div>
 
 </div>
 
@@ -206,12 +218,14 @@
 
   // ---------------- STATE ----------------
   var headingUp = localStorage.getItem('bearing-mode') === 'headingUp';
-  var focusIndex = 0; // 0 = compass btn, 1 = media btn
+  var focusIndex = 0; // 0 = compass btn, 1 = zoom in, 2 = zoom out, 3 = calibrate, 4 = media btn, 5 = donate
   var focusEls = [
     document.getElementById('compassBtn'),
     document.getElementById('zoomInBtn'),
     document.getElementById('zoomOutBtn'),
-    document.getElementById('mediaBtn')
+    document.getElementById('calBtn'),
+    document.getElementById('mediaBtn'),
+    document.getElementById('donateLink')
   ];
 
   var currentHeading = 0;      // degrees, 0 = true north
@@ -270,7 +284,9 @@
           if(focusIndex === 0){ toggleMode(); }
           else if(focusIndex === 1){ safeZoomIn(); }
           else if(focusIndex === 2){ safeZoomOut(); }
-          else { toggleMedia(); }
+          else if(focusIndex === 3){ calibrateFromGps(); }
+          else if(focusIndex === 4){ toggleMedia(); }
+          else { openDonate(); }
         }catch(e){}
         e.preventDefault();
         break;
@@ -426,15 +442,15 @@
   // causes that spinning/dizzy feeling, especially in a moving vehicle
   // where the compass is noisiest. Rendering is handled by headingTick().
   var rawCompassHeading = null;
+  var lastRawAlpha = null; // the sensor's raw value, BEFORE any offset — needed for calibration math
 
-  // The glasses' internal sensor axes don't necessarily line up with "the
-  // direction the wearer is looking" — a fixed calibration offset is
-  // sometimes needed for IMU-based headings. Two rough photo-based
-  // estimates (-90, then -180) overshot and undershot respectively; the
-  // second one produced a full north/south inversion, which — since 180°
-  // is its own inverse — means the correct offset is actually 0. Left as
-  // a named constant in case a future hardware/firmware change needs it.
-  var COMPASS_OFFSET_DEG = 0;
+  // Two independent photo calibrations converged on the same ~180°
+  // correction, used as the starting default. This is now a persistent,
+  // user-adjustable value (see calibrateFromGps below) rather than a fixed
+  // constant, since sensor calibration can vary and re-guessing from
+  // photos every time isn't sustainable.
+  var COMPASS_OFFSET_DEG = parseFloat(localStorage.getItem('bearing-compass-offset'));
+  if(isNaN(COMPASS_OFFSET_DEG)) COMPASS_OFFSET_DEG = 180;
 
   function handleOrientation(e){
     var heading = null;
@@ -447,9 +463,36 @@
       heading = e.alpha;
     }
     if(heading !== null && !isNaN(heading)){
-      rawCompassHeading = (heading + COMPASS_OFFSET_DEG + 360) % 360;
+      lastRawAlpha = (heading + 360) % 360;
+      rawCompassHeading = (lastRawAlpha + COMPASS_OFFSET_DEG + 360) % 360;
       lastCompassUpdate = Date.now();
     }
+  }
+
+  // "Tare" the compass against GPS course-over-ground, which doesn't
+  // depend on the magnetometer at all and is a reliable ground truth once
+  // moving. Measures the gap between what the compass currently says and
+  // what GPS says, and permanently corrects for it going forward.
+  function calibrateFromGps(){
+    var gpsHeadingFreshNow = gpsHeading !== null && (Date.now() - lastGpsHeadingUpdate) < GPS_HEADING_MAX_AGE_MS;
+    if(!gpsHeadingFreshNow || lastRawAlpha === null){
+      showCalToast('KEEP MOVING TO CALIBRATE');
+      return;
+    }
+    var newOffset = ((gpsHeading - lastRawAlpha) % 360 + 360) % 360;
+    COMPASS_OFFSET_DEG = newOffset;
+    localStorage.setItem('bearing-compass-offset', String(newOffset));
+    showCalToast('CALIBRATED: ' + Math.round(newOffset) + '\u00B0');
+  }
+
+  var calToastTimer = null;
+  function showCalToast(msg){
+    var el = document.getElementById('calToast');
+    if(!el) return;
+    el.textContent = msg;
+    el.style.opacity = '1';
+    if(calToastTimer) clearTimeout(calToastTimer);
+    calToastTimer = setTimeout(function(){ el.style.opacity = '0'; }, 2200);
   }
 
   // Same lesson as geolocation: motion/orientation data requires an
@@ -649,6 +692,14 @@
   setPlaybackState(false);
 
   function toggleMedia(){ setPlaybackState(!isPlaying); }
+
+  // Direct https:// navigation to PayPal errors out in the MRBD webview —
+  // same workaround used across the other apps: hand off to the paired
+  // phone's Messages app with the donate link pre-filled instead.
+  function openDonate(){
+    var body = encodeURIComponent('Support Bearing — donate via PayPal: https://www.paypal.com/donate/?business=mike.t.hayashi@gmail.com&no_recurring=0&currency_code=USD');
+    window.location.href = 'sms:?body=' + body;
+  }
 
   applyHeading();
 
